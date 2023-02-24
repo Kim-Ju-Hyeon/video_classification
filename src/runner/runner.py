@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from tqdm import tqdm
-import pickle
+import json
 import torch
 import torch.nn as nn
 
@@ -9,166 +9,189 @@ from collections import defaultdict
 import torch.optim as optim
 
 from utils.train_helper import model_snapshot, load_model
-from utils.logger import get_logger
 
 from utils.score import get_score
 import yaml
 from utils.train_helper import edict2dict
 
+from models.base_cnn import Base_CNN
+
 
 class Runner(object):
-    def __init__(self, config):
-        self.get_dataset(config)
+    def __init__(self, config, logger):
         self.config = config
+        self.logger = logger
+        
         self.exp_dir = config.exp_dir
         self.model_save = config.model_save
-        self.logger = get_logger(logger_name=str(config.seed))
         self.seed = config.seed
-        self.use_gpu = config.use_gpu
         self.device = config.device
 
         self.best_model_dir = os.path.join(self.model_save, 'best.pth')
         self.ck_dir = os.path.join(self.model_save, 'training.ck')
+        self.metrics_file = os.path.join(config.exp_sub_dir, 'results.json')
+
 
         self.train_conf = config.train
         self.dataset_conf = config.dataset
-
-        if self.train_conf.loss_type == 'classification':
-            self.classification_loss = nn.BCEWithLogitsLoss(pos_weight=self.normedWeight.to(device=self.device))
-
-        if self.train_conf.loss_function == 'MAE':
-            self.regression_loss = nn.L1Loss()
-        elif self.train_conf.loss_function == 'MSE':
-            self.regression_loss = nn.MSELoss()
+        
+        # Binary or Multi-Class Classification
+        if self.train_conf.loss_type == 'binary':
+            self.criterion = nn.BCEWithLogitsLoss()
+        elif self.train_conf.loss_type == 'multi_class':
+            self.criterion = nn.CrossEntropyLoss()
         else:
-            raise ValueError('Non-supported Loss Function')
+            raise ValueError("Non-supported Loss")
 
-        if self.config.model_name == '':
-            pass
-        elif self.config.model_name == '':
-            pass
+        # Choose the model
+        if self.config.model_name == 'base_cnn':
+            self.model = Base_CNN(n_classes=13)
         else:
             raise ValueError("Non-supported Model")
-
-        if self.use_gpu and (self.device != 'cpu'):
-            self.model = self.model.to(device=self.device)
-
-    def get_dataset(self, config):
-        pass
-
-
-    def train(self):
+        
         # create optimizer
         params = filter(lambda p: p.requires_grad, self.model.parameters())
         
         if self.train_conf.optimizer == 'SGD':
-            optimizer = optim.SGD(
+            self.optimizer = optim.SGD(
                 params,
                 lr=self.train_conf.lr,
                 momentum=self.train_conf.momentum)
         elif self.train_conf.optimizer == 'Adam':
-            optimizer = optim.Adam(
+            self.optimizer = optim.Adam(
                 params,
                 lr=self.train_conf.lr,
                 weight_decay=self.train_conf.wd)
         else:
             raise ValueError("Non-supported optimizer!")
 
-        results = defaultdict(list)
-        best_val_loss = np.inf
+        self.model = self.model.to(device=self.device)
+        self.criterion = self.criterion.to(device=self.device)
+        
+    def train(self, train_dataloader, val_dataloader):
+        best_val_loss = float('inf')
+        train_losses = []
+        train_accs = []
+        val_losses = []
+        val_accs = []
 
-        if self.config.train_resume:
-            checkpoint = load_model(self.ck_dir)
-            self.model.load_state_dict(checkpoint['model'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            best_val_loss = checkpoint['best_valid_loss']
-            self.train_conf.epoch -= checkpoint['epoch']
 
-        # ========================= Training Loop ============================= #
-        for epoch in range(self.train_conf.epoch):
-            # ====================== training ============================= #
-            self.model.train()
+        for epoch in range(1, self.train_conf.epoch+1):
+            # Train the model for one epoch
+            train_loss, train_acc = self._train_epoch(train_dataloader)
 
-            train_loss = []
+            # Compute validation loss and accuracy
+            val_loss, val_acc = self._evaluate(val_dataloader)
 
-            for i, data_batch in enumerate(tqdm(self.train_dataset)):
-
-                if self.use_gpu and (self.device != 'cpu'):
-                    data_batch = data_batch.to(device=self.device)
-                    
-                pass
-
-                # backward pass (accumulates gradients)
-            #     loss.backward()
-
-            #     # performs a single update step.
-            #     optimizer.step()
-            #     optimizer.zero_grad()
-
-            #     train_loss += [float(loss.data.cpu().numpy())]
-
-            #     # display loss
-            #     if (i + 1) % 500 == 0:
-            #         self.logger.info(
-            #             "Train Loss @ epoch {} iteration {} = {}".format(epoch + 1, i + 1,
-            #                                                             float(loss.data.cpu().numpy())))
-
-            # train_loss = np.stack(train_loss).mean()
-            # results['train_loss'] += [train_loss]
-
-            # ===================== validation ============================ #
-            self.model.eval()
-
-            val_loss = []
+            # Log the results for this epoch
+            self.logger.info(f'Epoch {epoch:03d}: train_loss = {train_loss:.4f} | train_acc = {train_acc:.4f} | '
+                            f'val_loss = {val_loss:.4f} | val_acc = {val_acc:.4f}')
             
-            for data_batch in tqdm(self.valid_dataset):
-                if self.use_gpu and (self.device != 'cpu'):
-                    data_batch = data_batch.to(device=self.device)
+            self.logger.info(f'Best validation loss: {best_val_loss:.4f}')
 
-                with torch.no_grad():
-                    pass
+            # Save the training and validation metrics for this epoch
+            train_losses.append(train_loss)
+            train_accs.append(train_acc)
+            val_losses.append(val_loss)
+            val_accs.append(val_acc)
 
+            # Save the weights of the best model
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 torch.save(self.model.state_dict(), self.best_model_dir)
-
-            self.logger.info("Epoch {} Avg. Validation Loss = {:.6}".format(epoch + 1, val_loss, 0))
-            self.logger.info("Current Best Validation Loss = {:.6}".format(best_val_loss))
-
-            model_snapshot(epoch=epoch, model=self.model, optimizer=optimizer, scheduler=None,
-                        best_valid_loss=best_val_loss, exp_dir=self.ck_dir)
-
-        pickle.dump(results, open(os.path.join(self.config.exp_sub_dir, 'training_result.pickle'), 'wb'))
-
-    def test(self):
-        self.config.train.batch_size = 1
-
-        if self.config.model_name == '':
-            pass
-        elif self.config.model_name == '':
-            pass
-        else:
-            raise ValueError("Non-supported Model")
-
-        best_snapshot = load_model(self.best_model_dir)
-        self.best_model.load_state_dict(best_snapshot)
-
-        if self.use_gpu and (self.device != 'cpu'):
-            self.best_model = self.best_model.to(device=self.device)
-
-        # ===================== validation ============================ #
-        self.best_model.eval()
-
-        test_loss = []
-        results = defaultdict()
+            # Save the training and validation metrics to a file
+            metrics = {
+                'train_losses': train_losses,
+                'train_accs': train_accs,
+                'val_losses': val_losses,
+                'val_accs': val_accs
+            }
+            
+            with open(self.metrics_file, 'w') as f:
+                json.dump(metrics, f)
         
-        for data_batch in tqdm(self.test_dataset):
-            if self.use_gpu and (self.device != 'cpu'):
-                data_batch = data_batch.to(device=self.device)
+        
+    def _train_epoch(self, dataloader):
+        self.model.train()
+        total_loss = 0
+        total_correct = 0
+        total_samples = 0
 
-            with torch.no_grad():
-                pass
+        for inputs, targets in dataloader:
+            inputs = inputs.to(self.device)
+            targets = targets.to(self.device)
 
-        self.logger.info(f"Avg. Test Loss = {results['test_loss']}")
+            self.optimizer.zero_grad()
 
-        pickle.dump(results, open(os.path.join(self.config.exp_sub_dir, 'test_result.pickle'), 'wb'))
+            # Forward pass
+            outputs = self.model(inputs)
+            loss = self.criterion(outputs, targets)
+
+            # Backward pass
+            loss.backward()
+            self.optimizer.step()
+
+            # Compute accuracy
+            preds = torch.argmax(outputs, dim=1)
+            correct = (preds == targets).sum().item()
+            total_correct += correct
+            total_samples += targets.size(0)
+
+            # Log the loss for this batch
+            total_loss += loss.item()
+
+        # Compute average loss and accuracy for the epoch
+        avg_loss = total_loss / len(dataloader)
+        avg_acc = total_correct / total_samples
+
+        return avg_loss, avg_acc
+    
+    def _evaluate(self, dataloader):
+        self.model.eval()
+        total_loss = 0
+        total_correct = 0
+        total_samples = 0
+
+        with torch.no_grad():
+            for inputs, targets in dataloader:
+                inputs = inputs.to(self.device)
+                targets = targets.to(self.device)
+
+                # Forward pass
+                outputs = self.model(inputs)
+                loss = self.criterion(outputs, targets)
+
+                # Compute accuracy
+                preds = torch.argmax(outputs, dim=1)
+                correct = (preds == targets).sum().item()
+                total_correct += correct
+                total_samples += targets.size(0)
+
+                # Compute loss
+                total_loss += loss.item()
+
+        # Compute average loss and accuracy for the validation set
+        avg_loss = total_loss / len(dataloader)
+        avg_acc = total_correct / total_samples
+
+        return avg_loss, avg_acc
+    
+    def test(self, dataloader):
+        self.model.eval()
+
+        # Load the weights of the best model
+        self.model.load_state_dict(torch.load(self.best_model_dir))
+
+        # Evaluate the model on the test set
+        predictions = []
+        with torch.no_grad():
+            for inputs in dataloader:
+                inputs = inputs.to(self.device)
+
+                # Forward pass
+                outputs = self.model(inputs)
+                preds = torch.argmax(outputs, dim=1)
+                predictions.append(preds.cpu().numpy())
+
+        predictions = np.concatenate(predictions)
+        return predictions

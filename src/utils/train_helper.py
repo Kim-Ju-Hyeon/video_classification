@@ -9,6 +9,7 @@ import random
 import pytz
 from easydict import EasyDict as edict
 import yaml
+import torch
 
 
 def get_config(config_file):
@@ -49,8 +50,12 @@ def set_seed(seed=None):
         seed = random.randint(1, 10000)
 
     random.seed(seed)
-    torch.manual_seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = True
+
 
     return seed
 

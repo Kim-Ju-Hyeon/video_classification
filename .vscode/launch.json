@@ -1,0 +1,22 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "/Users/juhyeonkim/video_classification/src/run_exp.py",
+            "python": "/Users/juhyeonkim/opt/anaconda3/envs/video_classification/bin/python",
+            "cwd": "${workspaceFolder}/src",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--conf_file_path",
+                "/Users/juhyeonkim/video_classification/src/config/config.yaml"
+            ]
+        }
+    ]
+}

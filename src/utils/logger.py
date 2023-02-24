@@ -24,8 +24,8 @@ def setup_logging(log_level, log_file, logger_name="exp_logger"):
     console = logging.StreamHandler()
     console.setLevel(numeric_level)
     console.setFormatter(formatter)
+    
     # add the handler to the root logger
-
     file_console = logging.FileHandler(log_file)
     file_console.setLevel(numeric_level)
     file_console.setFormatter(formatter)
