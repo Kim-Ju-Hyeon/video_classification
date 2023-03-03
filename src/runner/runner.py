@@ -46,6 +46,12 @@ class Runner(object):
         # Choose the model
         if self.config.model_name == 'base_cnn':
             self.model = Base_CNN(n_classes=13)
+        elif self.config.model_name == "X3D":
+            pass
+        elif self.config.model_name == "3D_ResNet":
+            self.model = torch.hub.load('facebookresearch/pytorchvideo', 'slow_r50', pretrained=True)
+        elif self.config.model_name == "SlowFast":
+            self.model = torch.hub.load('facebookresearch/pytorchvideo', 'slowfast_r50', pretrained=True)
         else:
             raise ValueError("Non-supported Model")
         
@@ -69,6 +75,7 @@ class Runner(object):
         self.criterion = self.criterion.to(device=self.device)
         
     def train(self, train_dataloader, val_dataloader):
+        print("Train Start!")
         best_val_loss = float('inf')
         train_losses = []
         train_accs = []
@@ -117,6 +124,7 @@ class Runner(object):
         total_correct = 0
         total_samples = 0
 
+        iters = 1
         for inputs, targets in dataloader:
             inputs = inputs.to(self.device)
             targets = targets.to(self.device)
@@ -139,7 +147,11 @@ class Runner(object):
 
             # Log the loss for this batch
             total_loss += loss.item()
+            
+            if iters % 10 == 0:
+                self.logger.info(f'Iters {iters}: train_loss = {loss/targets.size(0):.4f} | train_acc = {correct/targets.size(0):.4f}')
 
+            iters += 1
         # Compute average loss and accuracy for the epoch
         avg_loss = total_loss / len(dataloader)
         avg_acc = total_correct / total_samples
@@ -177,6 +189,7 @@ class Runner(object):
         return avg_loss, avg_acc
     
     def test(self, dataloader):
+        print("Inference Start!!")
         self.model.eval()
 
         # Load the weights of the best model
@@ -184,6 +197,7 @@ class Runner(object):
 
         # Evaluate the model on the test set
         predictions = []
+        iters = 1
         with torch.no_grad():
             for inputs in dataloader:
                 inputs = inputs.to(self.device)
@@ -192,6 +206,10 @@ class Runner(object):
                 outputs = self.model(inputs)
                 preds = torch.argmax(outputs, dim=1)
                 predictions.append(preds.cpu().numpy())
+                
+                if iters % 3 == 0:
+                    print(f'Iters {iters}: Test is ongoing')
 
         predictions = np.concatenate(predictions)
+        self.logger.info(f'Inference is Done!!!')
         return predictions

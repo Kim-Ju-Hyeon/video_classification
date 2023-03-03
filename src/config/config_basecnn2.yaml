@@ -1,7 +1,7 @@
 ---
 exp_name: baseCNN # 0417
 exp_dir: ../exp
-device: 6 # 'mps' in M1 Mac
+device: 7 # 'mps' in M1 Mac
 seed: None # If you want to reproduce set the seed
 model_name: base_cnn # 
 train_resume: False
@@ -19,4 +19,3 @@ train:
     batch_size : 256
 
 model:
-

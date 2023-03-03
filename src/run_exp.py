@@ -24,6 +24,7 @@ def main(conf_file_path):
 
     now = datetime.datetime.now(pytz.timezone('Asia/Seoul'))
     sub_dir = now.strftime('%m%d_%H%M%S')
+    sub_dir = str(config.exp_name) + '_' + sub_dir
     
     config.seed = set_seed(config.seed)
 
@@ -62,7 +63,7 @@ def main(conf_file_path):
         
         submit = pd.read_csv('./data/sample_submission.csv')
         submit['label'] = preds
-        submit.to_csv('./data/baseline_submit.csv', index=False)
+        submit.to_csv(os.path.join(config.exp_sub_dir, 'submit.csv'), index=False)
     except:
         logger.error(traceback.format_exc())
 
